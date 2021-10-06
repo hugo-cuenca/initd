@@ -1,6 +1,16 @@
 [package]
 name = "initd"
 version = "0.1.0"
+description = "Simple, serviced-compatible PID 1 implementation"
+authors = ["Hugo Cuenca <hugo.cuenca.arana@gmail.com>"]
+readme = "README.md"
+homepage = "https://github.com/hugo-cuenca/initd/"
+repository = "https://github.com/hugo-cuenca/initd/"
+license = "MITNFA"
+keywords = ["init", "linux init", "pid 1", "pid1", "initd"]
+exclude = [
+    ".idea/*",
+]
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
