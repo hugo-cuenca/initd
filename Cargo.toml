@@ -7,7 +7,7 @@ readme = "README.md"
 homepage = "https://github.com/hugo-cuenca/initd/"
 repository = "https://github.com/hugo-cuenca/initd/"
 license = "MITNFA"
-keywords = ["init", "linux init", "pid 1", "pid1", "initd"]
+keywords = ["init", "pid1", "pid-1", "initd"]
 exclude = [
     ".idea/*",
 ]
