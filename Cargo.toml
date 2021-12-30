@@ -21,3 +21,8 @@ const_format = { version = "0.2.22", features = ["const_generics"] }
 cstr = "0.2.9"
 nix = "0.23.0"
 precisej-printable-errno = "0.1.0"
+
+[features]
+default = []
+debug-default = ["debug-notpid1"]
+debug-notpid1 = []

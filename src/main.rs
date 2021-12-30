@@ -85,6 +85,11 @@
 #![warn(missing_docs)]
 #![allow(rustdoc::private_intra_doc_links)]
 
+// Fail compilation early if incompatible features are enabled
+#[cfg(all(not(debug_assertions), any(feature = "debug-notpid1")))]
+compile_error!("Building release build with debug features: in order to compile a build with \
+                debug-* features, you must compile without the \"--release\" flag.");
+
 /// Every platform has different essential tasks that must be performed by the first
 /// userspace process. This module contains code that calls to the specific platform
 /// that the target binary is compiled to.
