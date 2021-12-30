@@ -3,6 +3,7 @@
 //! This module contains specific libc Linux system calls to be performed when
 //! calling into [crate::platforms] on a Linux OS.
 
+use cfg_if::cfg_if;
 use const_format::concatcp;
 use cstr::cstr;
 use nix::{
@@ -12,6 +13,11 @@ use nix::{
         open,
     },
     ioctl_read,
+    libc::{
+        STDERR_FILENO,
+        STDIN_FILENO,
+        STDOUT_FILENO,
+    },
     sys::{
         reboot::{
             RebootMode,
@@ -139,28 +145,28 @@ ioctl_read! {
 ///
 /// The following sanity checks should be made in Linux:
 /// * We should be PID 1. Otherwise, an error should be returned.
-///     * In debug mode, we can just emit a warning and continue.
+///     * With `debug-notpid1`, we can just emit a warning and continue.
 pub(crate) fn initial_sanity_check() -> Result<OpaqueSanityCheckResult, PrintableErrno> {
     let pid = getpid().as_raw();
-    Ok(
-        if pid != 1 {
-            // If we aren't PID 1, assume stdin/stdout/stderr to all be open, so no problem in
-            // using precisej-printable-errno here.
-            let e = printable_error(PROGRAM_NAME, format!("expected PID 1, got {}.", pid));
+    if pid != 1 {
+        // If we aren't PID 1, assume stdin/stdout/stderr to all be open, so no problem in
+        // using precisej-printable-errno here.
+        let e = printable_error(PROGRAM_NAME, format!("expected PID 1, got {}.", pid));
 
-            // Running initd as a regular process shouldn't be permitted in release mode, but
-            // it makes for easy testing in debug mode.
-            if cfg!(debug_assertions) {
+        // Running initd as a regular process shouldn't be permitted in release mode, so it's
+        // hidden behind the 'debug-notpid1' feature flag.
+        cfg_if! {
+            if #[cfg(feature = "debug-notpid1")] {
                 e.eprint();
                 printable_error(PROGRAM_NAME, "continuing anyway...".to_string()).eprint();
-                OpaqueSanityCheckResult(false)
+                Ok(OpaqueSanityCheckResult(false))
             } else {
-                return Err(e)
+                Err(e)
             }
-        } else {
-            OpaqueSanityCheckResult(true)
         }
-    )
+    } else {
+        Ok(OpaqueSanityCheckResult(true))
+    }
 }
 
 /// Initial setup for Linux.
@@ -176,39 +182,39 @@ pub(crate) fn initial_setup(results: &OpaqueSanityCheckResult) -> Result<(), Pri
     if is_pid1 {
         // Since neither stdin/stdout/stderr is assumed to be open, we can't use
         // precisej-printable-errno just yet.
-        // In other functions with errno, runit simply repeats on failure after 5 seconds,
-        // so we will do something similar here.
-        const STDIN: RawFd = 0;
-        const STDOUT: RawFd = 1;
-        const STDERR: RawFd = 2;
+        // runit repeats syscalls on failure after 5 seconds, so we will do something
+        // similar here.
 
-        //noinspection DuplicatedCode
-        let read_fd = loop {
-            match open("/dev/console", OFlag::O_RDONLY, Mode::empty()) {
-                Ok(fd) => break fd,
-                Err(_) => {
-                    sleep(5);
-                }
-            }
-        };
-        while dup2(read_fd, STDIN).is_err() { sleep(5); }
-        if read_fd != STDIN {
+        let read_fd = open_console(OFlag::O_RDONLY);
+        dup2_retry(read_fd, STDIN_FILENO);
+        if read_fd != STDIN_FILENO {
             close(read_fd).ok(); // ignore error
         }
 
-        //noinspection DuplicatedCode
-        let write_fd = loop {
-            match open("/dev/console", OFlag::O_WRONLY, Mode::empty()) {
-                Ok(fd) => break fd,
-                Err(_) => {
-                    sleep(5);
+        let write_fd = open_console(OFlag::O_WRONLY);
+        dup2_retry(write_fd, STDOUT_FILENO);
+        dup2_retry(write_fd, STDERR_FILENO);
+        if write_fd != STDOUT_FILENO && write_fd != STDERR_FILENO {
+            close(write_fd).ok(); // ignore error
+        }
+
+        #[inline]
+        fn open_console(oflag: OFlag) -> RawFd {
+            loop {
+                match open("/dev/console", oflag, Mode::empty()) {
+                    Ok(fd) => break fd,
+                    Err(_) => sleep(5),
                 }
             }
-        };
-        while dup2(write_fd, STDOUT).is_err() { sleep(5); }
-        while dup2(write_fd, STDERR).is_err() { sleep(5) ;}
-        if write_fd != STDOUT && write_fd != STDERR {
-            close(write_fd).ok(); // ignore error
+        }
+        #[inline]
+        fn dup2_retry(oldfd: RawFd, newfd: RawFd) {
+            loop {
+                match dup2(oldfd, newfd) {
+                    Ok(_) => break,
+                    Err(_) => sleep(5),
+                }
+            }
         }
     }
 
@@ -387,27 +393,21 @@ impl OpaqueServicedHandle {
                     .printable(PROGRAM_NAME, "serviced: unable to close duplicate communication channel end with initd")
                     .ok_or_eprint_signal_safe();
 
-                // All we have to do now is change session / process group id, open /dev/console/,
+                // All we have to do now is change session / process group id, open /dev/console,
                 // and hand over execution to serviced. Realistically the only error that could
                 // arise is SERVICED_PATH not being found (root not properly mounted or no serviced/
                 // serviced-compatible program installed), so just begrudgingly bail and hope any
-                // distro maintainer fixes whatever crap package manager dependency management they
-                // have that permits installing ONLY initd.
+                // distro maintainer fixes whatever crap caused this.
                 setsid()
                     .printable(PROGRAM_NAME, "unable to change session id")
                     .ok_or_eprint_signal_safe();
 
                 if is_pid1 {
-                    const STDIN: RawFd = 0;
-                    const STDERR: RawFd = 2;
-
                     if let Ok(fd) = open("/dev/console", OFlag::O_RDWR, Mode::empty()) {
                         tiocsctty(fd, std::ptr::null_mut()).ok(); // ignore error
 
-                        write(1, b"hello child 2\n").ok();
-
-                        while dup2(fd, STDIN).is_err() { sleep(5); }
-                        if fd > STDERR {
+                        while dup2(fd, STDIN_FILENO).is_err() { sleep(5); }
+                        if fd > STDERR_FILENO {
                             close(fd).ok(); // ignore error
                         }
                     };
@@ -423,7 +423,9 @@ impl OpaqueServicedHandle {
                     .printable(PROGRAM_NAME, "serviced: unable to clean up communication channel end with initd")
                     .ok_or_eprint_signal_safe();
                 err.unwrap_or_eprint_signal_safe_exit();
-                unreachable!()
+
+                // unreachable because we already exited
+                std::hint::unreachable_unchecked()
             }
             Err(errno) => {
                 // fork() failing should be a fatal error, so bubble up a printable error.
