@@ -4,7 +4,6 @@
 //! calling into [crate::platforms] on a Linux OS.
 
 use cfg_if::cfg_if;
-use const_format::concatcp;
 use cstr::cstr;
 use nix::{
     errno::Errno,
@@ -73,14 +72,14 @@ use crate::{
 
 
 /// Used as the 0th argument to serviced in an `execv` call.
-const SERVICED_ARG0: &'static str = "serviced";
+const SERVICED_ARG0: &'static CStr = cstr!("serviced");
 
 /// Used as the 1st argument to serviced in an `execv` call.
 ///
 /// All initd-compatible programs should use this same constant value to indicate
 /// their communication specification. serviced can parse the sent value and
 /// allow communication accordingly.
-#[allow(dead_code)] const SERVICED_ARG1: &'static str = "initd_v0";
+#[allow(dead_code)] const SERVICED_ARG1: &'static CStr = cstr!("initd_v0");
 
 /// Path where serviced is located. Used in the `execv` call to actually execute
 /// serviced.
@@ -89,7 +88,7 @@ const SERVICED_ARG0: &'static str = "serviced";
 /// actually puts the executable in `/sbin/serviced`. Otherwise, you must maintain a
 /// patch changing `SERVICED_PATH` to the appropriate path (e.g. `/serviced`,
 /// `/bin/serviced`, or `/usr/bin/serviced`).
-const SERVICED_PATH: &'static str = concatcp!("/sbin/", SERVICED_ARG0);
+const SERVICED_PATH: &'static CStr = cstr!("/sbin/serviced");
 
 /// Error message used in case `SERVICE_PATH` is not able to be executed by `execv`.
 /// This can be caused by not having serviced installed (although distributions should
@@ -97,7 +96,7 @@ const SERVICED_PATH: &'static str = concatcp!("/sbin/", SERVICED_ARG0);
 /// not having it installed with the proper executable permissions (should never
 /// happen unless serviced is improperly packaged by the distribution), or a more
 /// obscure error.
-const SERVICED_ERROR: &'static str = concatcp!("unable to execute serviced in ", SERVICED_PATH);
+const SERVICED_ERROR: &'static str = "unable to execute serviced";
 
 /// In how many seconds the alarm should be scheduled.
 ///
@@ -204,7 +203,7 @@ pub(crate) fn initial_setup(results: &OpaqueSanityCheckResult) -> Result<(), Pri
                 match open("/dev/console", oflag, Mode::empty()) {
                     Ok(fd) => break fd,
                     Err(_) => sleep(5),
-                }
+                };
             }
         }
         #[inline]
@@ -213,7 +212,7 @@ pub(crate) fn initial_setup(results: &OpaqueSanityCheckResult) -> Result<(), Pri
                 match dup2(oldfd, newfd) {
                     Ok(_) => break,
                     Err(_) => sleep(5),
-                }
+                };
             }
         }
     }
@@ -413,7 +412,7 @@ impl OpaqueServicedHandle {
                     };
                 }
 
-                let err = execv(cstr!(SERVICED_PATH), &[cstr!(SERVICED_ARG0), cstr!(SERVICED_ARG1), serviced_exit_pipe_arg2])
+                let err = execv(SERVICED_PATH, &[SERVICED_ARG0, SERVICED_ARG1, serviced_exit_pipe_arg2])
                     .printable(PROGRAM_NAME, SERVICED_ERROR)
                     .bail(7);
 
