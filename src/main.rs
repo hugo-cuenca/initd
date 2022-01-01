@@ -148,7 +148,7 @@ fn main() {
 ///               for a reboot or a shutdown (or serviced, and therefore critical system
 ///               components, must have crashed, so reboot anyway). Sync any pending filesystem
 ///               operations and perform system shutdown or reboot as appropriate.
-fn init() -> Result<(), ExitError> {
+fn init() -> Result<(), ExitError<String>> {
     let sanity_checks = initial_sanity_check().bail(1)?;
     initial_setup(&sanity_checks).bail(2)?;
     let signal_blocker = ProcSignalInterceptor::intercept_all().bail(3)?;
@@ -189,7 +189,7 @@ fn init() -> Result<(), ExitError> {
 }
 
 /// Receive a signal to shutdown or reboot, so send a message to serviced that it must close.
-fn sig_end(serviced: &mut ServicedInstanceGeneric) -> Result<(), ExitError> {
+fn sig_end(serviced: &mut ServicedInstanceGeneric) -> Result<(), ExitError<&'static str>> {
     // send serviced end
     serviced.try_send_exit_message().bail(5)
 }
@@ -199,7 +199,7 @@ fn sig_end(serviced: &mut ServicedInstanceGeneric) -> Result<(), ExitError> {
 /// If the process corresponds to serviced, either it crashed or we told it to exit.
 /// In any case reboot or shutdown (after syncing disks in case serviced didn't do so
 /// if it crashed).
-fn sig_reap(serviced: &ServicedInstanceGeneric, shutdown: bool) -> Result<(), ExitError> {
+fn sig_reap(serviced: &ServicedInstanceGeneric, shutdown: bool) -> Result<(), ExitError<&'static str>> {
     loop {
         match serviced.wait_next_child() {
             WaitStatus::ContinueLoop => { /* continue */ }

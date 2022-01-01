@@ -97,9 +97,9 @@ dependencies = [
 
 [[package]]
 name = "precisej-printable-errno"
-version = "0.1.2"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a04f23a3102f6c257963a18d9cd4dbdb59813bd18526f653955ad10e1034996f"
+checksum = "881148070ae3c9915bd56afdcd446bc282d2033fecf89b083a4e017549d4216f"
 dependencies = [
  "nix",
 ]

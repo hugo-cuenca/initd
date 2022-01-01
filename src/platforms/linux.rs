@@ -145,7 +145,7 @@ ioctl_read! {
 /// The following sanity checks should be made in Linux:
 /// * We should be PID 1. Otherwise, an error should be returned.
 ///     * With `debug-notpid1`, we can just emit a warning and continue.
-pub(crate) fn initial_sanity_check() -> Result<OpaqueSanityCheckResult, PrintableErrno> {
+pub(crate) fn initial_sanity_check() -> Result<OpaqueSanityCheckResult, PrintableErrno<String>> {
     let pid = getpid().as_raw();
     if pid != 1 {
         // If we aren't PID 1, assume stdin/stdout/stderr to all be open, so no problem in
@@ -176,7 +176,7 @@ pub(crate) fn initial_sanity_check() -> Result<OpaqueSanityCheckResult, Printabl
 ///     * Set read_fd as stdin.
 ///     * Set write_fd as stdout and stderr.
 /// * Change directory to `/`.
-pub(crate) fn initial_setup(results: &OpaqueSanityCheckResult) -> Result<(), PrintableErrno> {
+pub(crate) fn initial_setup(results: &OpaqueSanityCheckResult) -> Result<(), PrintableErrno<&'static str>> {
     let is_pid1 = results.0;
     if is_pid1 {
         // Since neither stdin/stdout/stderr is assumed to be open, we can't use
@@ -253,7 +253,7 @@ pub(crate) fn alarm_clear() {
 /// ourselves. Therefore `sync(2)` must be called as a precautionary measure.
 ///
 /// After calling `sync(2)`, we call `reboot(2)` with `RB_POWER_OFF`.
-pub(crate) fn power_off() -> Result<Infallible, PrintableErrno> {
+pub(crate) fn power_off() -> Result<Infallible, PrintableErrno<&'static str>> {
     sync();
     reboot(RebootMode::RB_POWER_OFF).printable(PROGRAM_NAME, "unable to shutdown")
 }
@@ -266,7 +266,7 @@ pub(crate) fn power_off() -> Result<Infallible, PrintableErrno> {
 /// ourselves. Therefore `sync(2)` must be called as a precautionary measure.
 ///
 /// After calling `sync(2)`, we call `reboot(2)` with `RB_AUTOBOOT`.
-pub(crate) fn reboot_autoboot() -> Result<Infallible, PrintableErrno> {
+pub(crate) fn reboot_autoboot() -> Result<Infallible, PrintableErrno<&'static str>> {
     sync();
     reboot(RebootMode::RB_AUTOBOOT).printable(PROGRAM_NAME, "unable to reboot")
 }
@@ -299,7 +299,7 @@ impl OpaqueSigSet {
     ///
     /// **NOTE**: even though our set contains all signals, `SIGKILL` and `SIGSTOP`
     /// can't be blocked and they are silently ignored in `sigprocmask(2)`.
-    pub(crate) fn block(&self) -> Result<(), PrintableErrno> {
+    pub(crate) fn block(&self) -> Result<(), PrintableErrno<&'static str>> {
         sigprocmask(SIG_BLOCK, Some(&self.set), None)
             .printable(PROGRAM_NAME, "unable to block signals")
     }
@@ -308,7 +308,7 @@ impl OpaqueSigSet {
     ///
     /// **NOTE**: even though our set contains all signals, `SIGKILL` and `SIGSTOP`
     /// can't be blocked and they are silently ignored in `sigprocmask(2)`.
-    pub(crate) fn unblock(&self) -> Result<(), PrintableErrno> {
+    pub(crate) fn unblock(&self) -> Result<(), PrintableErrno<&'static str>> {
         sigprocmask(SIG_UNBLOCK, Some(&self.set), None)
             .printable(PROGRAM_NAME, "unable to unblock signals in child")
     }
@@ -318,7 +318,7 @@ impl OpaqueSigSet {
     ///
     /// **NOTE**: even though our set contains all signals, `SIGKILL` and `SIGSTOP`
     /// can't be blocked and they are silently ignored in `sigprocmask(2)`.
-    pub(crate) fn wait_for_next(&self) -> Result<Option<platforms::ProcSignal>, PrintableErrno> {
+    pub(crate) fn wait_for_next(&self) -> Result<Option<platforms::ProcSignal>, PrintableErrno<&'static str>> {
         match self.set.wait().printable(PROGRAM_NAME, "unable to await new process signals")? {
             Signal::SIGUSR1 => Ok(Some(platforms::ProcSignal::PowerOff)),
             Signal::SIGCHLD => Ok(Some(platforms::ProcSignal::ReapChild)),
@@ -360,7 +360,7 @@ impl OpaqueServicedHandle {
     ///     * In the parent:
     ///         * Close serviced's end of the pipe, as initd doesn't need it.
     ///         * Return a communication handle to the recently spawned serviced.
-    pub(crate) fn spawn_serviced(set: &OpaqueSigSet, setup: OpaqueSanityCheckResult) -> Result<OpaqueServicedHandle, PrintableErrno> {
+    pub(crate) fn spawn_serviced(set: &OpaqueSigSet, setup: OpaqueSanityCheckResult) -> Result<OpaqueServicedHandle, PrintableErrno<&'static str>> {
         let (read_exit_pipe, write_exit_pipe) = pipe2(OFlag::O_NONBLOCK)
             .printable(PROGRAM_NAME, "unable to create critical communication channel with serviced")?;
 
@@ -440,11 +440,11 @@ impl OpaqueServicedHandle {
 
     /// Await the next child process. The result is of type [platforms::WaitStatus] to
     /// distinguish what should be done.
-    pub(crate) fn wait_next_child<S: ServicedPid>(serviced: &S) -> Result<platforms::WaitStatus, PrintableErrno> {
+    pub(crate) fn wait_next_child<S: ServicedPid>(serviced: &S) -> Result<platforms::WaitStatus, PrintableErrno<String>> {
         let status = match waitpid(None, Some(WaitPidFlag::WNOHANG)) {
             Ok(status) => status,
             Err(Errno::ECHILD) => return Ok(platforms::WaitStatus::BreakDefault), // WNOHANG: nothing else to wait for
-            Err(e) => return Err(e).printable(PROGRAM_NAME, "unable to wait for child")
+            Err(e) => return Err(e).printable(PROGRAM_NAME, "unable to wait for child".to_string())
         };
         let serviced_pid = serviced.pid();
         match status {
@@ -479,7 +479,7 @@ impl OpaqueServicedHandle {
     }
 
     /// Send a message through the handle to serviced to cleanly exit, and then close the handle.
-    pub(crate) fn send_exit_message(&mut self) -> Result<OpaqueClosingServicedInstance, PrintableErrno> {
+    pub(crate) fn send_exit_message(&mut self) -> Result<OpaqueClosingServicedInstance, PrintableErrno<&'static str>> {
         write(self.exit_pipe, &[1]).printable(PROGRAM_NAME, "unable to send exit message to serviced")?;
         close(self.exit_pipe).printable(PROGRAM_NAME, "unable to close message pipe with serviced")?;
         self.exit_pipe = -1;

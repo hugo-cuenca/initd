@@ -43,7 +43,7 @@ pub mod initializer {
     ///
     /// See the specific platform module corresponding to a target OS for
     /// more details on what is done here.
-    pub fn initial_sanity_check() -> Result<SanityCheckResult, PrintableErrno> {
+    pub fn initial_sanity_check() -> Result<SanityCheckResult, PrintableErrno<String>> {
         cfg_if! {
             if #[cfg(target_os = "linux")] {
                 Ok(SanityCheckResult {
@@ -59,7 +59,7 @@ pub mod initializer {
     ///
     /// See the specific platform module corresponding to a target OS for
     /// more details on what is done here.
-    pub fn initial_setup(results: &SanityCheckResult) -> Result<(), PrintableErrno> {
+    pub fn initial_setup(results: &SanityCheckResult) -> Result<(), PrintableErrno<&'static str>> {
         cfg_if! {
             if #[cfg(target_os = "linux")] {
                 linux::initial_setup(&results.opaque)
@@ -142,7 +142,7 @@ pub mod power {
     ///
     /// See the specific platform module corresponding to a target OS for
     /// more details on what is done here.
-    pub fn power_off() -> Result<Infallible, PrintableErrno> {
+    pub fn power_off() -> Result<Infallible, PrintableErrno<&'static str>> {
         cfg_if! {
             if #[cfg(target_os = "linux")] {
                 linux::power_off()
@@ -156,7 +156,7 @@ pub mod power {
     ///
     /// See the specific platform module corresponding to a target OS for
     /// more details on what is done here.
-    pub fn reboot() -> Result<Infallible, PrintableErrno> {
+    pub fn reboot() -> Result<Infallible, PrintableErrno<&'static str>> {
         cfg_if! {
             if #[cfg(target_os = "linux")] {
                 linux::reboot_autoboot()
@@ -197,7 +197,7 @@ impl ProcSignalInterceptor {
     ///
     /// See the specific platform module corresponding to a target OS for
     /// more details on what is done here.
-    pub fn intercept_all() -> Result<ProcSignalInterceptor, PrintableErrno> {
+    pub fn intercept_all() -> Result<ProcSignalInterceptor, PrintableErrno<&'static str>> {
         cfg_if! {
             if #[cfg(target_os = "linux")] {
                 let opaque = linux::OpaqueSigSet::all();
@@ -216,7 +216,7 @@ impl ProcSignalInterceptor {
     ///
     /// See the specific platform module corresponding to a target OS for
     /// more details on what is done here.
-    pub fn wait_for_next(&self) -> Result<Option<ProcSignal>, PrintableErrno> {
+    pub fn wait_for_next(&self) -> Result<Option<ProcSignal>, PrintableErrno<&'static str>> {
         cfg_if! {
             if #[cfg(target_os = "linux")] {
                 self.opaque.wait_for_next()
@@ -260,7 +260,7 @@ pub struct ServicedHandle {
 impl ServicedHandle {
     /// Spawn a new serviced instance with all signals unblocked. Returns a [Result]
     /// with the communication handle.
-    pub fn spawn_serviced(set: &ProcSignalInterceptor, setup: initializer::SanityCheckResult) -> Result<ServicedHandle, PrintableErrno> {
+    pub fn spawn_serviced(set: &ProcSignalInterceptor, setup: initializer::SanityCheckResult) -> Result<ServicedHandle, PrintableErrno<&'static str>> {
         cfg_if! {
             if #[cfg(target_os = "linux")] {
                 Ok(ServicedHandle {
@@ -325,7 +325,7 @@ pub enum ServicedInstanceGeneric {
 impl ServicedInstanceGeneric {
     /// If the communication handle is still open, send a message through the handle
     /// to serviced to cleanly exit, and then close the handle.
-    pub fn try_send_exit_message(&mut self) -> Result<(), PrintableErrno> {
+    pub fn try_send_exit_message(&mut self) -> Result<(), PrintableErrno<&'static str>> {
         cfg_if! {
             if #[cfg(target_os = "linux")] {
                 match self {
