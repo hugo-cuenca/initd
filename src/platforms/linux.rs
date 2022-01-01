@@ -7,69 +7,34 @@ use cfg_if::cfg_if;
 use cstr::cstr;
 use nix::{
     errno::Errno,
-    fcntl::{
-        OFlag,
-        open,
-    },
+    fcntl::{open, OFlag},
     ioctl_read,
-    libc::{
-        STDERR_FILENO,
-        STDIN_FILENO,
-        STDOUT_FILENO,
-    },
+    libc::{STDERR_FILENO, STDIN_FILENO, STDOUT_FILENO},
     sys::{
-        reboot::{
-            RebootMode,
-            reboot,
-        },
+        reboot::{reboot, RebootMode},
         signal::{
-            SigSet,
-            SigmaskHow::{
-                SIG_BLOCK,
-                SIG_UNBLOCK
-            },
+            sigprocmask, SigSet,
+            SigmaskHow::{SIG_BLOCK, SIG_UNBLOCK},
             Signal,
-            sigprocmask,
         },
         stat::Mode,
-        wait::{
-            WaitPidFlag,
-            WaitStatus,
-            waitpid,
-        },
+        wait::{waitpid, WaitPidFlag, WaitStatus},
     },
     unistd::{
-        ForkResult,
-        Pid,
-        alarm,
-        chdir,
-        close,
-        dup2,
-        execv,
-        fork,
-        getpid,
-        pipe2,
-        setsid,
-        sleep,
-        sync,
-        write,
+        alarm, chdir, close, dup2, execv, fork, getpid, pipe2, setsid, sleep, sync, write,
+        ForkResult, Pid,
     },
+};
+use precisej_printable_errno::{
+    printable_error, ErrnoResult, ExitErrorResult, PrintableErrno, PrintableResult,
 };
 use std::{
     convert::Infallible,
     ffi::CStr,
-    os::{
-        raw::c_int,
-        unix::prelude::RawFd,
-    },
-};
-use precisej_printable_errno::{ErrnoResult, PrintableErrno, PrintableResult, printable_error, ExitErrorResult};
-
-use crate::{
-    platforms,
-    PROGRAM_NAME,
+    os::{raw::c_int, unix::prelude::RawFd},
 };
 
+use crate::{platforms, PROGRAM_NAME};
 
 /// Used as the 0th argument to serviced in an `execv` call.
 const SERVICED_ARG0: &'static CStr = cstr!("serviced");
@@ -79,7 +44,8 @@ const SERVICED_ARG0: &'static CStr = cstr!("serviced");
 /// All initd-compatible programs should use this same constant value to indicate
 /// their communication specification. serviced can parse the sent value and
 /// allow communication accordingly.
-#[allow(dead_code)] const SERVICED_ARG1: &'static CStr = cstr!("initd_v0");
+#[allow(dead_code)]
+const SERVICED_ARG1: &'static CStr = cstr!("initd_v0");
 
 /// Path where serviced is located. Used in the `execv` call to actually execute
 /// serviced.
@@ -126,7 +92,6 @@ const LINUX_TIME_ALARM_DEFAULT: u32 = 30;
 /// nor power-saving issues.
 const LINUX_TIME_ALARM_SHORT: u32 = 1;
 
-
 ioctl_read! {
     /// [ioctl(RawFd, TIOCSCTTY, *mut c_int)][nix::libc::ioctl] wrapper.
     ///
@@ -138,7 +103,6 @@ ioctl_read! {
     /// and all processes that had it as controlling terminal lose it.
     tiocsctty, b't', 19, c_int
 }
-
 
 /// Initial sanity checks for Linux.
 ///
@@ -176,7 +140,9 @@ pub(crate) fn initial_sanity_check() -> Result<OpaqueSanityCheckResult, Printabl
 ///     * Set read_fd as stdin.
 ///     * Set write_fd as stdout and stderr.
 /// * Change directory to `/`.
-pub(crate) fn initial_setup(results: &OpaqueSanityCheckResult) -> Result<(), PrintableErrno<&'static str>> {
+pub(crate) fn initial_setup(
+    results: &OpaqueSanityCheckResult,
+) -> Result<(), PrintableErrno<&'static str>> {
     let is_pid1 = results.0;
     if is_pid1 {
         // Since neither stdin/stdout/stderr is assumed to be open, we can't use
@@ -271,7 +237,6 @@ pub(crate) fn reboot_autoboot() -> Result<Infallible, PrintableErrno<&'static st
     reboot(RebootMode::RB_AUTOBOOT).printable(PROGRAM_NAME, "unable to reboot")
 }
 
-
 /// This contains relevant initial sanity check results.
 ///
 /// For now the only relevant info is whether we are PID 1, as we might not be if
@@ -290,9 +255,7 @@ impl OpaqueSigSet {
     /// **NOTE**: even though our set contains all signals, `SIGKILL` and `SIGSTOP`
     /// can't be blocked and they are silently ignored in `sigprocmask(2)`.
     pub(crate) fn all() -> OpaqueSigSet {
-        OpaqueSigSet {
-            set: SigSet::all()
-        }
+        OpaqueSigSet { set: SigSet::all() }
     }
 
     /// Blocks the signals corresponding to this struct. Internally calls `sigprocmask(2)`.
@@ -318,8 +281,14 @@ impl OpaqueSigSet {
     ///
     /// **NOTE**: even though our set contains all signals, `SIGKILL` and `SIGSTOP`
     /// can't be blocked and they are silently ignored in `sigprocmask(2)`.
-    pub(crate) fn wait_for_next(&self) -> Result<Option<platforms::ProcSignal>, PrintableErrno<&'static str>> {
-        match self.set.wait().printable(PROGRAM_NAME, "unable to await new process signals")? {
+    pub(crate) fn wait_for_next(
+        &self,
+    ) -> Result<Option<platforms::ProcSignal>, PrintableErrno<&'static str>> {
+        match self
+            .set
+            .wait()
+            .printable(PROGRAM_NAME, "unable to await new process signals")?
+        {
             Signal::SIGUSR1 => Ok(Some(platforms::ProcSignal::PowerOff)),
             Signal::SIGCHLD => Ok(Some(platforms::ProcSignal::ReapChild)),
             Signal::SIGALRM => Ok(Some(platforms::ProcSignal::ReapChild)),
@@ -360,21 +329,29 @@ impl OpaqueServicedHandle {
     ///     * In the parent:
     ///         * Close serviced's end of the pipe, as initd doesn't need it.
     ///         * Return a communication handle to the recently spawned serviced.
-    pub(crate) fn spawn_serviced(set: &OpaqueSigSet, setup: OpaqueSanityCheckResult) -> Result<OpaqueServicedHandle, PrintableErrno<&'static str>> {
-        let (read_exit_pipe, write_exit_pipe) = pipe2(OFlag::O_NONBLOCK)
-            .printable(PROGRAM_NAME, "unable to create critical communication channel with serviced")?;
+    pub(crate) fn spawn_serviced(
+        set: &OpaqueSigSet,
+        setup: OpaqueSanityCheckResult,
+    ) -> Result<OpaqueServicedHandle, PrintableErrno<&'static str>> {
+        let (read_exit_pipe, write_exit_pipe) = pipe2(OFlag::O_NONBLOCK).printable(
+            PROGRAM_NAME,
+            "unable to create critical communication channel with serviced",
+        )?;
 
         // SAFETY: The string will always be an integer followed by a nul byte.
         let serviced_exit_pipe_arg2_s = format!("{}\0", read_exit_pipe).into_bytes();
-        let serviced_exit_pipe_arg2 = unsafe { CStr::from_bytes_with_nul_unchecked(&serviced_exit_pipe_arg2_s) };
+        let serviced_exit_pipe_arg2 =
+            unsafe { CStr::from_bytes_with_nul_unchecked(&serviced_exit_pipe_arg2_s) };
 
         let is_pid1 = setup.0;
 
         let pid = match unsafe { fork() } {
             Ok(ForkResult::Parent { child }) => {
                 // We are still initd, so just close the unnecessary fd and save the child pid
-                close(read_exit_pipe)
-                    .printable(PROGRAM_NAME, "unable to close duplicate communication channel end with serviced")?;
+                close(read_exit_pipe).printable(
+                    PROGRAM_NAME,
+                    "unable to close duplicate communication channel end with serviced",
+                )?;
                 child
             }
             Ok(ForkResult::Child) => unsafe {
@@ -389,7 +366,10 @@ impl OpaqueServicedHandle {
                 set.unblock().ok_or_eprint_signal_safe();
 
                 close(write_exit_pipe)
-                    .printable(PROGRAM_NAME, "serviced: unable to close duplicate communication channel end with initd")
+                    .printable(
+                        PROGRAM_NAME,
+                        "serviced: unable to close duplicate communication channel end with initd",
+                    )
                     .ok_or_eprint_signal_safe();
 
                 // All we have to do now is change session / process group id, open /dev/console,
@@ -405,27 +385,35 @@ impl OpaqueServicedHandle {
                     if let Ok(fd) = open("/dev/console", OFlag::O_RDWR, Mode::empty()) {
                         tiocsctty(fd, std::ptr::null_mut()).ok(); // ignore error
 
-                        while dup2(fd, STDIN_FILENO).is_err() { sleep(5); }
+                        while dup2(fd, STDIN_FILENO).is_err() {
+                            sleep(5);
+                        }
                         if fd > STDERR_FILENO {
                             close(fd).ok(); // ignore error
                         }
                     };
                 }
 
-                let err = execv(SERVICED_PATH, &[SERVICED_ARG0, SERVICED_ARG1, serviced_exit_pipe_arg2])
-                    .printable(PROGRAM_NAME, SERVICED_ERROR)
-                    .bail(7);
+                let err = execv(
+                    SERVICED_PATH,
+                    &[SERVICED_ARG0, SERVICED_ARG1, serviced_exit_pipe_arg2],
+                )
+                .printable(PROGRAM_NAME, SERVICED_ERROR)
+                .bail(7);
 
                 // Indeed there is no serviced (or it is not accessible via SERVICED_PATH),
                 // so close any remaining pipes and bail.
                 close(read_exit_pipe)
-                    .printable(PROGRAM_NAME, "serviced: unable to clean up communication channel end with initd")
+                    .printable(
+                        PROGRAM_NAME,
+                        "serviced: unable to clean up communication channel end with initd",
+                    )
                     .ok_or_eprint_signal_safe();
                 err.unwrap_or_eprint_signal_safe_exit();
 
                 // unreachable because we already exited
                 std::hint::unreachable_unchecked()
-            }
+            },
             Err(errno) => {
                 // fork() failing should be a fatal error, so bubble up a printable error.
                 return Err(errno).printable(PROGRAM_NAME, "unable to fork child for execution");
@@ -440,31 +428,38 @@ impl OpaqueServicedHandle {
 
     /// Await the next child process. The result is of type [platforms::WaitStatus] to
     /// distinguish what should be done.
-    pub(crate) fn wait_next_child<S: ServicedPid>(serviced: &S) -> Result<platforms::WaitStatus, PrintableErrno<String>> {
+    pub(crate) fn wait_next_child<S: ServicedPid>(
+        serviced: &S,
+    ) -> Result<platforms::WaitStatus, PrintableErrno<String>> {
         let status = match waitpid(None, Some(WaitPidFlag::WNOHANG)) {
             Ok(status) => status,
             Err(Errno::ECHILD) => return Ok(platforms::WaitStatus::BreakDefault), // WNOHANG: nothing else to wait for
-            Err(e) => return Err(e).printable(PROGRAM_NAME, "unable to wait for child".to_string())
+            Err(e) => {
+                return Err(e).printable(PROGRAM_NAME, "unable to wait for child".to_string())
+            }
         };
         let serviced_pid = serviced.pid();
         match status {
             WaitStatus::Exited(pid, exit_code) if pid == serviced_pid => {
                 if exit_code != 0 {
-                    printable_error(PROGRAM_NAME, format!("serviced exited with error code {}", exit_code))
-                        .eprint();
+                    printable_error(
+                        PROGRAM_NAME,
+                        format!("serviced exited with error code {}", exit_code),
+                    )
+                    .eprint();
                 }
                 Ok(platforms::WaitStatus::BreakServiced)
-            },
+            }
             WaitStatus::Signaled(pid, sig, _) if pid == serviced_pid => {
-                printable_error(PROGRAM_NAME, format!("serviced was killed with {}", sig.as_str())).eprint();
+                printable_error(
+                    PROGRAM_NAME,
+                    format!("serviced was killed with {}", sig.as_str()),
+                )
+                .eprint();
                 Ok(platforms::WaitStatus::BreakServiced)
-            },
-            WaitStatus::Exited(_, _) => {
-                Ok(platforms::WaitStatus::ContinueLoop)
-            },
-            WaitStatus::Signaled(_, _, _) => {
-                Ok(platforms::WaitStatus::ContinueLoop)
-            },
+            }
+            WaitStatus::Exited(_, _) => Ok(platforms::WaitStatus::ContinueLoop),
+            WaitStatus::Signaled(_, _, _) => Ok(platforms::WaitStatus::ContinueLoop),
             WaitStatus::StillAlive => Ok(platforms::WaitStatus::BreakDefault), // WNOHANG: nothing else to wait for
 
             // WaitStatus::Stopped(_, _)
@@ -479,13 +474,15 @@ impl OpaqueServicedHandle {
     }
 
     /// Send a message through the handle to serviced to cleanly exit, and then close the handle.
-    pub(crate) fn send_exit_message(&mut self) -> Result<OpaqueClosingServicedInstance, PrintableErrno<&'static str>> {
-        write(self.exit_pipe, &[1]).printable(PROGRAM_NAME, "unable to send exit message to serviced")?;
-        close(self.exit_pipe).printable(PROGRAM_NAME, "unable to close message pipe with serviced")?;
+    pub(crate) fn send_exit_message(
+        &mut self,
+    ) -> Result<OpaqueClosingServicedInstance, PrintableErrno<&'static str>> {
+        write(self.exit_pipe, &[1])
+            .printable(PROGRAM_NAME, "unable to send exit message to serviced")?;
+        close(self.exit_pipe)
+            .printable(PROGRAM_NAME, "unable to close message pipe with serviced")?;
         self.exit_pipe = -1;
-        Ok(OpaqueClosingServicedInstance {
-            pid: self.pid,
-        })
+        Ok(OpaqueClosingServicedInstance { pid: self.pid })
     }
 }
 impl ServicedPid for OpaqueServicedHandle {

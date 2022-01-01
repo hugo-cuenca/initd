@@ -87,34 +87,24 @@
 
 // Fail compilation early if incompatible features are enabled
 #[cfg(all(not(debug_assertions), any(feature = "debug-notpid1")))]
-compile_error!("Building release build with debug features: in order to compile a build with \
-                debug-* features, you must compile without the \"--release\" flag.");
+compile_error!(
+    "Building release build with debug features: in order to compile a build with \
+                debug-* features, you must compile without the \"--release\" flag."
+);
 
 /// Every platform has different essential tasks that must be performed by the first
 /// userspace process. This module contains code that calls to the specific platform
 /// that the target binary is compiled to.
 mod platforms;
 
-use precisej_printable_errno::{
-    ExitError,
-    PrintableResult,
-};
+use precisej_printable_errno::{ExitError, PrintableResult};
 
 use crate::platforms::{
-    ProcSignal,
-    ProcSignalInterceptor,
-    ServicedHandle,
-    ServicedInstance,
-    ServicedInstanceGeneric,
-    WaitStatus,
     alarm,
-    initializer::{
-        initial_sanity_check,
-        initial_setup,
-    },
-    power,
+    initializer::{initial_sanity_check, initial_setup},
+    power, ProcSignal, ProcSignalInterceptor, ServicedHandle, ServicedInstance,
+    ServicedInstanceGeneric, WaitStatus,
 };
-
 
 /// The program is called `initd`. The str referring to the program name is saved in
 /// this constant. Useful for [PrintableResult].
@@ -152,7 +142,9 @@ fn init() -> Result<(), ExitError<String>> {
     let sanity_checks = initial_sanity_check().bail(1)?;
     initial_setup(&sanity_checks).bail(2)?;
     let signal_blocker = ProcSignalInterceptor::intercept_all().bail(3)?;
-    let mut serviced = ServicedHandle::spawn_serviced(&signal_blocker, sanity_checks).bail(4)?.to_generic();
+    let mut serviced = ServicedHandle::spawn_serviced(&signal_blocker, sanity_checks)
+        .bail(4)?
+        .to_generic();
 
     let mut shutdown = false;
     let mut short_alarm = false;
@@ -175,14 +167,14 @@ fn init() -> Result<(), ExitError<String>> {
                     short_alarm = true;
                     sig_end(&mut serviced)?;
                 }
-            },
+            }
             Some(ProcSignal::ReapChild) => sig_reap(&serviced, shutdown)?,
             Some(ProcSignal::Reboot) => {
                 if !short_alarm {
                     short_alarm = true;
                     sig_end(&mut serviced)?;
                 }
-            },
+            }
             None => { /* no-op */ }
         }
     }
@@ -199,7 +191,10 @@ fn sig_end(serviced: &mut ServicedInstanceGeneric) -> Result<(), ExitError<&'sta
 /// If the process corresponds to serviced, either it crashed or we told it to exit.
 /// In any case reboot or shutdown (after syncing disks in case serviced didn't do so
 /// if it crashed).
-fn sig_reap(serviced: &ServicedInstanceGeneric, shutdown: bool) -> Result<(), ExitError<&'static str>> {
+fn sig_reap(
+    serviced: &ServicedInstanceGeneric,
+    shutdown: bool,
+) -> Result<(), ExitError<&'static str>> {
     loop {
         match serviced.wait_next_child() {
             WaitStatus::ContinueLoop => { /* continue */ }
@@ -207,9 +202,9 @@ fn sig_reap(serviced: &ServicedInstanceGeneric, shutdown: bool) -> Result<(), Ex
             WaitStatus::BreakServiced => {
                 alarm::clear();
                 if shutdown {
-                    break power::power_off().map(|_|()).bail(128);
+                    break power::power_off().map(|_| ()).bail(128);
                 } else {
-                    break power::reboot().map(|_|()).bail(127);
+                    break power::reboot().map(|_| ()).bail(127);
                 }
             }
         }

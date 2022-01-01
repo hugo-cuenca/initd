@@ -3,11 +3,7 @@
 //! Linux-specific code is located in `linux`.
 
 use cfg_if::cfg_if;
-use precisej_printable_errno::{
-    PrintableErrno,
-    PrintableResult,
-    printable_error,
-};
+use precisej_printable_errno::{printable_error, PrintableErrno, PrintableResult};
 
 use crate::PROGRAM_NAME;
 
@@ -260,7 +256,10 @@ pub struct ServicedHandle {
 impl ServicedHandle {
     /// Spawn a new serviced instance with all signals unblocked. Returns a [Result]
     /// with the communication handle.
-    pub fn spawn_serviced(set: &ProcSignalInterceptor, setup: initializer::SanityCheckResult) -> Result<ServicedHandle, PrintableErrno<&'static str>> {
+    pub fn spawn_serviced(
+        set: &ProcSignalInterceptor,
+        setup: initializer::SanityCheckResult,
+    ) -> Result<ServicedHandle, PrintableErrno<&'static str>> {
         cfg_if! {
             if #[cfg(target_os = "linux")] {
                 Ok(ServicedHandle {
@@ -320,7 +319,7 @@ pub enum ServicedInstanceGeneric {
     OpenHandle(ServicedHandle),
 
     /// The communication handle is closed because serviced is closing.
-    Closing(ClosingServicedInstance)
+    Closing(ClosingServicedInstance),
 }
 impl ServicedInstanceGeneric {
     /// If the communication handle is still open, send a message through the handle
