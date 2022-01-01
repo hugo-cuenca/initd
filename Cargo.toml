@@ -1,6 +1,6 @@
 [package]
 name = "initd"
-version = "0.1.2"
+version = "0.1.3"
 description = "Simple, serviced-compatible PID 1 implementation"
 authors = ["Hugo Cuenca <hugo.cuenca.arana@gmail.com>"]
 readme = "README.md"
